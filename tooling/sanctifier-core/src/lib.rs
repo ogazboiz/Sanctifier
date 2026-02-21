@@ -1,9 +1,8 @@
-use soroban_sdk::Env;
-use syn::{parse_str, File, Item, Type, Fields, Meta, ExprMethodCall, Macro};
-use syn::visit::{self, Visit};
-use syn::spanned::Spanned;
 use serde::Serialize;
-use thiserror::Error;
+use std::collections::HashSet;
+use syn::spanned::Spanned;
+use syn::visit::{self, Visit};
+use syn::{parse_str, Fields, File, Item, Meta, Type};
 
 // ── Existing types ────────────────────────────────────────────────────────────
 
@@ -315,7 +314,9 @@ impl Analyzer {
             Err(_) => return vec![],
         };
 
-        let mut visitor = UnsafeVisitor { patterns: Vec::new() };
+        let mut visitor = UnsafeVisitor {
+            patterns: Vec::new(),
+        };
         visitor.visit_file(&file);
         visitor.patterns
     }
@@ -385,8 +386,6 @@ impl Analyzer {
         }
     }
 }
-
-
 
 // ── UnsafeVisitor ─────────────────────────────────────────────────────────────
 
@@ -771,7 +770,11 @@ mod tests {
             }
         "#;
         let issues = analyzer.scan_arithmetic_overflow(source);
-        assert!(issues.is_empty(), "Expected no issues but found: {:?}", issues);
+        assert!(
+            issues.is_empty(),
+            "Expected no issues but found: {:?}",
+            issues
+        );
     }
 
     #[test]
