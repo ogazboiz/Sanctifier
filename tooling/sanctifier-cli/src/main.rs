@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use colored::*;
 use std::path::{Path, PathBuf};
 use std::fs;
-use sanctifier_core::Analyzer;
+use sanctifier_core::{Analyzer, SizeWarning, UnsafePattern, PatternType};
 
 #[derive(Parser)]
 #[command(name = "sanctifier")]
@@ -58,9 +58,11 @@ fn main() {
             let mut all_auth_gaps = Vec::new();
             let mut all_panic_issues = Vec::new();
 
+            println!("Debug: is_dir? {}, extension: {:?}", path.is_dir(), path.extension());
             if path.is_dir() {
                 analyze_directory(path, &analyzer, &mut all_warnings, &mut all_auth_gaps, &mut all_panic_issues);
             } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+                println!("Debug: Is a .rs file");
                 if let Ok(content) = fs::read_to_string(path) {
                     all_warnings.extend(analyzer.analyze_ledger_size(&content));
                     
@@ -76,18 +78,23 @@ fn main() {
                         all_panic_issues.push(p_mod);
                     }
                 }
+            } else {
+                println!("Debug: Path neither dir nor .rs file");
             }
 
             println!("{} Static analysis complete.", "✅".green());
             
             if format == "json" {
-                let json = serde_json::to_string_pretty(&all_warnings).unwrap_or_else(|_| "[]".to_string());
-                println!("{}", json);
+                let output = serde_json::json!({
+                    "size_warnings": all_size_warnings,
+                    "unsafe_patterns": all_unsafe_patterns,
+                });
+                println!("{}", serde_json::to_string_pretty(&output).unwrap_or_else(|_| "{}".to_string()));
             } else {
-                if all_warnings.is_empty() {
-                    println!("No ledger size issues found.");
+                if all_size_warnings.is_empty() && all_unsafe_patterns.is_empty() {
+                    println!("No issues found.");
                 } else {
-                    for warning in all_warnings {
+                    for warning in all_size_warnings {
                         println!(
                             "{} Warning: Struct {} is approaching ledger entry size limit!",
                             "⚠️".yellow(),
@@ -97,6 +104,20 @@ fn main() {
                             "   Estimated size: {} bytes (Limit: {} bytes)",
                             warning.estimated_size.to_string().red(),
                             warning.limit
+                        );
+                    }
+
+                    for pattern in all_unsafe_patterns {
+                        let msg = match pattern.pattern_type {
+                            PatternType::Panic => "Explicit panic!() call detected".red(),
+                            PatternType::Unwrap => "unwrap() call detected".yellow(),
+                            PatternType::Expect => "expect() call detected".yellow(),
+                        };
+                        println!(
+                            "{} {}: {}",
+                            "🚨".red(),
+                            msg,
+                            format!("{}:{}", pattern.line, pattern.snippet).bold()
                         );
                     }
                 }
@@ -193,7 +214,13 @@ fn analyze_directory(
                     let warnings = analyzer.analyze_ledger_size(&content);
                     for mut w in warnings {
                         w.struct_name = format!("{}: {}", path.display(), w.struct_name);
-                        all_warnings.push(w);
+                        all_size_warnings.push(w);
+                    }
+
+                    let patterns = analyzer.analyze_unsafe_patterns(&content);
+                    for mut p in patterns {
+                        p.snippet = format!("{}:{}", path.display(), p.snippet);
+                        all_unsafe_patterns.push(p);
                     }
 
                     let gaps = analyzer.scan_auth_gaps(&content);

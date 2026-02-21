@@ -1,5 +1,6 @@
 use soroban_sdk::Env;
-use syn::{parse_str, File, Item, Type, Fields, Meta};
+use syn::{parse_str, File, Item, Type, Fields, Meta, ExprMacro, ExprMethodCall, Macro};
+use syn::visit::{self, Visit};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -243,6 +244,17 @@ impl Analyzer {
             }
         }
         warnings
+    }
+
+    pub fn analyze_unsafe_patterns(&self, source: &str) -> Vec<UnsafePattern> {
+        let file = match parse_str::<File>(source) {
+            Ok(f) => f,
+            Err(_) => return vec![],
+        };
+        
+        let mut visitor = UnsafeVisitor { patterns: Vec::new() };
+        visitor.visit_file(&file);
+        visitor.patterns
     }
 
     fn estimate_struct_size(&self, s: &syn::ItemStruct) -> usize {
